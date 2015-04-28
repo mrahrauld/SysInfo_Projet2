@@ -168,7 +168,7 @@ int main ( int argc, char *argv[]){
   }
   
   //struct list *l=Factorisation(b);
-   printf("ok\n"); 
+   //printf("ok\n"); 
    //Remplissage(l); 
    //PrintList(l); 
    //PrintList(global);

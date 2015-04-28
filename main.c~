@@ -18,8 +18,7 @@ struct list{
 
 //liste de nombre premiers
 struct PN *ListPN=NULL;
-//struct PN *ListPN=(struct PN *)malloc(sizeof(struct PN));
-//ListPN->PrimeNumber=2;
+
 //liste des différents facteurs et leurs occurences
 struct list *global=NULL;
 void PopList(struct list **l){
