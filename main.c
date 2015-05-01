@@ -6,6 +6,21 @@
 #include <string.h>
 #include <errno.h>
 #include <endian.h>
+#include <semaphore.h>
+#define NB_phtread_mutex_t  6
+#define NB_sem_t  5
+#define maxthread 10
+int m=0;
+int n=0;
+int ProdCount=0;
+int ConsCount=0;
+int RempCount=0;
+int T[maxthread];
+struct list *T2[maxthread];
+int flag=0;
+int flag2=0;
+int flag3=0;
+
 struct PN{
   int PrimeNumber;
   struct PN *n;
@@ -15,6 +30,10 @@ struct list{
   struct list *next;
   int Recurence;
 };
+
+sem_t semaphore [NB_sem_t] ;
+pthread_mutex_t mutex [NB_phtread_mutex_t] ;
+
 
 //liste de nombre premiers
 struct PN *ListPN=NULL;
@@ -78,11 +97,13 @@ struct list *Factorisation(int a){
      	 parcours=ListPN;
     	}
     	else {
-    		if (parcours->n==NULL){//rajoute un PrimeNumber à la liste
+    		if (parcours->n==NULL){//rajoute un PrimeNumber à la liste		
     	  		struct PN *push=malloc(sizeof(struct PN));
+    	  		pthread_mutex_lock(&mutex[3]); ///!!!!! probleme mutex
     	  		push->PrimeNumber=NextPrimeNumber(v);
     	  		push->n=NULL;
     	  		parcours->n=push;
+    	  		pthread_mutex_unlock(&mutex[3]);
     	  	}
     	  	parcours=parcours->n;
       
@@ -102,7 +123,7 @@ void Remplissage( struct list *l){
     }
     else if (l->Prime==parcours->Prime){
       if(parcours->Recurence){
-	parcours->Recurence++;
+	parcours->Recurence=0;
       }
 	PopList(&l);
 	parcours=global;
@@ -112,33 +133,114 @@ void Remplissage( struct list *l){
     }
   }
 }
-void Producer(char *file){
+void *producer(void *file){
   FILE* fichier = NULL;
-
-    fichier = fopen(file, "r");
-    int caractereActuel = 0;
+		//printf("%c\n",*((char *) file));
+    fichier = fopen((char *) file, "r");
     uint64_t var;
     struct list *l;
+    //printf("1");
     if (fichier != NULL)
     {
+    	//printf("2");
+    	pthread_mutex_lock(&mutex[1]);
       size_t fin=fread( &var , sizeof(var) , 1 , fichier );
-      while (fin!=0){ //en fait un de trop
-			var=be64toh(var);
-			printf("%lld\n",var);
-			l=Factorisation(var);
-			Remplissage(l);
-			
+      pthread_mutex_unlock(&mutex[1]);
+      while (fin!=0){ 
+      	//printf("3");
+      	sem_wait(&semaphore[1]);
+      	pthread_mutex_lock(&mutex[1]);
+      	ProdCount++;
+			T[m]=be64toh(var);
+			m++;
+			printf(" m:%d ",m);
 			fin=fread( &var , sizeof(var) , 1 , fichier );
+			if(fin==0){
+				flag++;
+			}
+			pthread_mutex_unlock(&mutex[1]);
+			sem_post(&semaphore[2]);
       }
-      PrintList(global);
+      //PrintList(global);
+      printf("bam\n");
+      //flag++;
       fclose(fichier);
     }
     else
     {
         // On affiche un message d'erreur si on veut
         printf("Impossible d'ouvrir le fichier file1.txt\n");
-    }
-  
+    } 
+    return NULL;
+}
+void *consummer(void *p){
+	struct list *l=NULL;
+	int g;
+	int flag3=0;
+	while(m!=0 || flag!=4){
+		
+		sem_wait(&semaphore[2]);
+		pthread_mutex_lock(&mutex[1]);
+		ConsCount++;
+		m--;
+		printf(" m:%d ",m);
+		g=T[m];
+		//Remplissage(l);
+		if (m==0 && flag==4){
+			flag2++;
+			printf("flag3:%d\n",flag3);
+		}
+		pthread_mutex_unlock(&mutex[1]);
+		sem_post(&semaphore[1]);
+		
+		l=Factorisation(g);
+		//printf("1");
+		sem_wait(&semaphore[3]);
+		pthread_mutex_lock(&mutex[2]);
+		//printf("2");
+		T2[n]=l;
+		//printf("3");
+		n++;
+		printf(" n:%d ",n);
+		if(flag3==1){
+			flag2++;
+			
+		}
+		//printf("flag:%d\n",flag2);
+		pthread_mutex_unlock(&mutex[2]);
+		sem_post(&semaphore[4]);
+	}
+	printf("bim\n");
+	printf("n: %d\n",n);
+	printf("ProdCount: %d\n",ProdCount);
+  	printf("RempCount: %d\n",RempCount);
+  	printf("ConsCount: %d\n",ConsCount);
+	return NULL;
+}
+void *remplisseur(void *p){
+	struct list *l;
+	while(n!=0 || flag2!=1){
+	printf("4");
+		sem_wait(&semaphore[4]);
+		printf("5");
+		pthread_mutex_lock(&mutex[2]);
+		RempCount++;
+		printf("6");
+		//printf(" n:%d ",n);
+		n--;
+		printf(" n:%d ",n);
+		Remplissage(T2[n]);
+		//printf("7");
+		pthread_mutex_unlock(&mutex[2]);
+		sem_post(&semaphore[3]);
+		printf(" ");
+		//printf(" n:%d ",n);
+		printf(" f:%d ",flag2);
+	}
+	PrintList(global);
+	printf("boum\n");
+	
+	return NULL;
 }
 void initialisation(void){
 	struct PN *P = malloc(sizeof(struct PN));
@@ -146,31 +248,62 @@ void initialisation(void){
 	P->n=NULL;
 	ListPN=P; 
 }
+void freePN(void){
+	struct PN *pop;
+	while(ListPN!=NULL){
+		
+ 		pop=ListPN->n;
+  		free(ListPN);
+  		ListPN=pop;
+	}
+}
 
 int main ( int argc, char *argv[]){
 	//struct PN *ListPN=(struct PN *)malloc(sizeof(struct PN));
 	initialisation();
-   int b=50; 
-  /* printf("mmmmmh \n"); */
-  /* if (IsPrimeNumber(b)){ */
-  /*   printf("ouiiii \n"); */
-  /* } */
-  /* else{ */
-  /*   printf("nonnnnn \n"); */
-  /* } */
-  /*  printf("%d \n",NextPrimeNumber(b)); */
-  
-  int i=0;
-  int c=2;
-  for (i=0;i<200;i++){
-  	//printf("%d\n",c);
-  	c=NextPrimeNumber(c);
-  }
-  
+	int b=0;
+	int i=0;  
+  	sem_init (&semaphore[1], 0, maxthread);
+	sem_init (&semaphore[2], 0, 0);
+	sem_init (&semaphore[3], 0, maxthread);
+	sem_init (&semaphore[4], 0, 0);
+	sem_init (&semaphore[5], 0, maxthread);
+	pthread_mutex_init(&mutex[1],NULL);
+	pthread_mutex_init(&mutex[2],NULL);
+	pthread_mutex_init(&mutex[3],NULL);
+  	pthread_t prod , prod2 , prod3,prod4, remp;
+  	pthread_t cons[maxthread];
   //struct list *l=Factorisation(b);
    //printf("ok\n"); 
    //Remplissage(l); 
    //PrintList(l); 
    //PrintList(global);
-  Producer("file1.txt");
+  pthread_create(&prod,NULL,&producer,(void *) "file1.txt" );
+   pthread_create(&prod2,NULL,&producer,(void *) "file2.txt" );
+   pthread_create(&prod3,NULL,&producer,(void *) "file3.txt" );
+   pthread_create(&prod4,NULL,&producer,(void *) "file4.txt" );
+   pthread_create(&cons[0],NULL,&consummer,NULL);
+  //Producer("file1.txt");
+  //for (i=0;i<maxthread;i++){
+  //	pthread_create(&cons[i],NULL,&consummer,NULL);
+  //}
+  	
+  	pthread_create(&remp,NULL,&remplisseur,NULL);
+  	//remplisseur((void *) &n);
+  	//PrintList(global);
+  	pthread_join (prod, NULL);
+  	pthread_join (prod2, NULL);
+  	pthread_join (prod3, NULL);
+  	pthread_join (prod4, NULL);
+  	
+  	pthread_join (cons[0], NULL);
+ 	//for (i=0;i<maxthread;i++){
+ 		//pthread_join (cons[i], NULL);
+ 	//}
+	pthread_join (remp, NULL);
+  	freePN();
+  	printf("ProdCount: %d\n",ProdCount);
+  	printf("RempCount: %d\n",RempCount);
+  	printf("ConsCount: %d\n",ConsCount);
+  
 }
