@@ -10,6 +10,8 @@
 #include <sys/time.h>
 #define NB_phtread_mutex_t  6
 #define NB_sem_t  5
+#define MAXTHREAD "-maxthreads"
+#define STDIN "-stdin"
 #define prodcount 4
 int maxthread=4;
 int m=0;
@@ -26,6 +28,7 @@ struct list **T2;
 int flag=0;
 int flag2=0;
 int flag3=0;
+int IsStdinFinish=0;
 
 struct PN{
   int PrimeNumber;
@@ -63,6 +66,17 @@ void PrintList(struct list *l){
     printf("%d   %d\n",l->Prime,l->Recurence);
     PopList(&l);
   }
+}
+void clean(const char *buffer, FILE *fp)//http://openclassrooms.com/courses/utiliser-les-bonnes-fonctions-d-entree
+{
+    char *p = strchr(buffer,'\n');
+    if (p != NULL)
+        *p = 0;
+    else
+    {
+        int c;
+        while ((c = fgetc(fp)) != '\n' && c != EOF);
+    }
 }
 int IsPrimeNumber(int a){
   int i=2;
@@ -125,6 +139,18 @@ void initialisation(void){
 	pthread_mutex_init(&mutex[0],NULL);
 }
 
+void define_maxthread(int argc, char *argv[]){
+	int i=0;  
+	for (i=1; i < argc-1; i++)
+		{
+			if (strcmp(argv[i], MAXTHREAD) == 0)
+			{
+				maxthread = atoi(argv[i+1]);
+				i++;
+	  		}
+	}
+}
+
 struct list *Factorisation(int a){
   struct list *l=NULL;
   struct PN *parcours=ListPN;//node qui parcours la liste de nombre premiers
@@ -183,9 +209,11 @@ void Remplissage( struct list *l){
   }
 }
 void *producer(void *file){
-  FILE* fichier = NULL;
+	pthread_mutex_lock(&mutex[0]);
+	pthread_mutex_unlock(&mutex[0]);
+ 	 FILE* fichier = (FILE *) file;
 		//printf("%c\n",*((char *) file));
-    fichier = fopen((char *) file, "r");
+   
     uint64_t var;
     struct list *l;
     //printf("1");
@@ -255,7 +283,7 @@ void *consummer(void *p){
 		pthread_mutex_lock(&mutex[1]);
 		if (breaker || m==0 && flag==prodcount){
 			//sem_post(&semaphore[3]);
-		   sem_post(&semaphore[2]);
+		   	sem_post(&semaphore[2]);
 		   pthread_mutex_unlock(&mutex[1]);
 			//printf(" threadg:%c ",*t);
 			break;
@@ -263,7 +291,7 @@ void *consummer(void *p){
 		//ConsCount++;
 		
 		m--;
-		//printf(" m:%d ",m);
+		printf(" m:%d ",m);
 		g=T[m];
 		//Remplissage(l);
 		//if (m==0 && flag==4){
@@ -308,9 +336,6 @@ void *consummer(void *p){
 	
 	printf("bim\n");
 	printf("n: %d\n",n);
-	printf("ProdCount: %d\n",ProdCount);
-  	printf("RempCount: %d\n",RempCount);
-  	printf("ConsCount: %d\n",ConsCount);
 	return NULL;
 }
 void *remplisseur(void *p){
@@ -334,7 +359,7 @@ void *remplisseur(void *p){
 		//printf("6");
 		//printf(" n:%d ",n);
 		n--;
-		//printf(" n:%d ",n);
+		printf(" n:%d ",n);
 		Remplissage(T2[n]);
 		//printf("7");
 		pthread_mutex_unlock(&mutex[2]);
@@ -375,37 +400,95 @@ int main ( int argc, char *argv[]){
     double texec=0.;
 	gettimeofday(&tbegin,NULL);
 	
+	define_maxthread(argc , argv);
+	
 	initialisation();
-	int b=0;
-	int i=0;  
+	char BUFF[20];
+	int i;
+	pthread_t cons[maxthread];
+	pthread_t prod, remp;
+	 for (i=0;i<maxthread;i++){
+  	pthread_create(&cons[i],NULL,&consummer,(void *) "1");
+  	}
+  	pthread_create(&remp,NULL,&remplisseur,NULL);
+  FILE* fichier = NULL;
+  pthread_mutex_lock(&mutex[0]);
+	for (i=1; i < argc; i++){
+		if(strcmp(argv[i],STDIN)==0){
+		 
+			while (1){
+				printf("Inserez un nombre ou /Exit : ");
+				fgets(BUFF, sizeof(BUFF), stdin);
+				clean(BUFF, stdin);
+				if(strcmp("/Exit",BUFF)==0)
+				{
+					break;
+				}
+				int var= NULL;
+				var=atoi(BUFF);
+				if(var){
+				printf("vous avez inseré: %d\n",var);
+				sem_getvalue(&semaphore[1], &value);
+				printf("sem1: %d\n",value);
+				sem_getvalue(&semaphore[2], &value);
+				printf("sem2: %d\n",value);
+				sem_getvalue(&semaphore[3], &value);
+				printf("sem3: %d\n",value);
+				sem_getvalue(&semaphore[4], &value);
+				printf("sem4: %d\n",value);
+				printf("%d\n",m); 
+				printf("%d\n",m);
+				sem_wait(&semaphore[1]); 
+				printf("NO\n"); 
+				pthread_mutex_lock(&mutex[1]);
+				printf("ca marche"); 
+				T[m]=var; 
+				m++; 
+				pthread_mutex_unlock(&mutex[1]); 
+				sem_post(&semaphore[2]);
+				}
+			}
+		}
+		else if (strcmp(argv[i], MAXTHREAD) == 0)
+			{
+				i++;
+	  		}
+		else{
+			fichier  = fopen(argv[i], "r");
+			pthread_create(&prod,NULL,&producer,(void *) fichier );
+		}	
+	}
+	pthread_mutex_unlock(&mutex[0]);
+	int b=0;  
+  	pthread_t prod2 , prod3,prod4;
+  
+  	
+  	 //fichier = fopen((char *) "file3.txt", "r");
 
-  	pthread_t prod , prod2 , prod3,prod4, remp;
-  	pthread_t cons[maxthread];
-
-   pthread_create(&prod,NULL,&producer,(void *) "file1.txt" );
-   pthread_create(&prod2,NULL,&producer,(void *) "file2.txt" );
-   pthread_create(&prod3,NULL,&producer,(void *) "file3.txt" );
-   pthread_create(&prod4,NULL,&producer,(void *) "file4.txt" );
+   //pthread_create(&prod,NULL,&producer,(void *) fichier );
+   //pthread_create(&prod2,NULL,&producer,(void *) "file2.txt" );
+   //pthread_create(&prod3,NULL,&producer,(void *) "file3.txt" );
+   //pthread_create(&prod4,NULL,&producer,(void *) "file4.txt" );
   // pthread_create(&cons[0],NULL,&consummer,(void *) "0");
    //pthread_create(&cons[1],NULL,&consummer,(void *) "1");
    //pthread_create(&cons[2],NULL,&consummer,(void *) "2");
   //Producer("file1.txt");
-  for (i=0;i<maxthread;i++){
-  	pthread_create(&cons[i],NULL,&consummer,(void *) "1");
-  }
+  //for (i=0;i<maxthread;i++){
+  //	pthread_create(&cons[i],NULL,&consummer,(void *) "1");
+  //}
   	
-  	pthread_create(&remp,NULL,&remplisseur,NULL);
-  	//remplisseur((void *) &n);
-  	
+
   	pthread_join (prod, NULL);
-  	pthread_join (prod2, NULL);
-  	pthread_join (prod3, NULL);
-  	pthread_join (prod4, NULL);
+  	//pthread_join (prod2, NULL);
+  //	pthread_join (prod3, NULL);
+  //	pthread_join (prod4, NULL);
  	for (i=0;i<maxthread;i++){
  		pthread_join (cons[i], NULL);
  	}
 	pthread_join (remp, NULL);
-  	freePN();
+
+  	//freePN(); /!\ /!\
+
   	fin();
   	gettimeofday(&tend,NULL);
   	texec=((double)(1000*(tend.tv_sec-tbegin.tv_sec)+((tend.tv_usec-tbegin.tv_usec)/1000)))/1000.;
