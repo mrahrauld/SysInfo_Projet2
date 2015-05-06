@@ -8,6 +8,7 @@
 #include <endian.h>
 #include <semaphore.h>
 #include <sys/time.h>
+#include "curl.h"
 #define NB_phtread_mutex_t  6
 #define NB_sem_t  5
 #define MAXTHREAD "-maxthreads"
@@ -18,7 +19,8 @@ int prodcount=0; // permet de calculer le nombre de producteurs crees
 int maxthread=4; //initialisé à 4 de maniere arbitraire, modifiee dans initialisation
 int Buffer1_Count=0; 
 int Buffer2_Count=0;
-int *Buffer1;
+int NOFILE=1;
+struct NOMBRE *Buffer1;
 char *Arg;
 int breaker=0;
 int value;
@@ -27,19 +29,22 @@ int flag=0;
 int flag2=0;
 int flag3=0;
 int IsStdinFinish=0;
-pthread_t prod[20];
+pthread_t *prod;
 
 int max1=0;
 int min1=0;
 int max2=0;
 int min2=0;
-
+struct NOMBRE{
+	int n;
+	char *fichier;
+};
 struct PN{
   int PrimeNumber;
   struct PN *n;
 };
 struct list{
-  int Prime;
+  struct NOMBRE n;
   struct list *next;
   int Recurence;
 };
@@ -59,15 +64,15 @@ void PopList(struct list **l){
   free(*l);
   *l=pop;
 }
-void PushList(struct list **l,int a){
+void PushList(struct list **l,struct NOMBRE a){
   struct list *push=malloc(sizeof(struct list));
-  push->Prime=a;
+  push->n=a;
   push->next=*l;
   *l=push;
 }
 void PrintList(struct list *l){
   while(l!=NULL){
-    printf("%d   %d\n",l->Prime,l->Recurence);
+    printf("%d   %d\n",l->n.n,l->Recurence);
     PopList(&l);
   }
 }
@@ -114,11 +119,9 @@ int NextPrimeNumber(int a){
   printf("erreur NextPrimeNumber");
   return 0; //à changer
 }
-void initialisation(void){
-	int *Buff= malloc(sizeof(int)*maxthread);
+void initialisation(int argc){
+	struct NOMBRE *Buff= malloc(sizeof(struct NOMBRE)*maxthread);
 	Buffer1=Buff;
-	char *A= malloc (sizeof(char)*maxthread);
-	Arg=A;
 	struct list **Buff2= malloc (sizeof(struct list*)*maxthread);
 	Buffer2=Buff2;
 	struct PN *P = malloc(sizeof(struct PN));
@@ -126,8 +129,10 @@ void initialisation(void){
 	P->n=NULL;
 	ListPN=P;
 	struct list *glob=malloc(sizeof(struct list));
+	pthread_t *p=malloc(sizeof(pthread_t)*argc);
+	prod=p;
 	printf("3");
-	glob->Prime=2;
+	glob->n.n=2;
 	glob->Recurence=2;
 	glob->next=NULL;
 	global=glob;
@@ -142,6 +147,11 @@ void initialisation(void){
 	pthread_mutex_init(&mutex[3],NULL);
 	pthread_mutex_init(&mutex[0],NULL);
 }
+void freefin(void){
+	sem_destroy(&semaphore[1]);
+	free(Buffer1);
+	free(*Buffer2);
+}
 
 void define_maxthread(int argc, char *argv[]){
 	int i=0;  
@@ -155,15 +165,18 @@ void define_maxthread(int argc, char *argv[]){
 	}
 }
 
-struct list *Factorisation(int a){
+struct list *Factorisation(int a, char *fichier){
   struct list *l=NULL;
   struct PN *parcours=ListPN;//node qui parcours la liste de nombre premiers
+  struct NOMBRE nbre;
   int v;
   while (a!=1){
 		v=parcours->PrimeNumber;
     	if (a % v==0){
      	 a= a/v;
-      	PushList(&l,v);
+     	 nbre.n=v;
+     	 nbre.fichier=fichier;
+      	PushList(&l,nbre);
      	 parcours=ListPN;
     	}
     	else { 
@@ -185,7 +198,7 @@ struct list *Factorisation(int a){
 void Remplissage( struct list *l){
   struct list *parcours = global;
   while (l!=NULL){
-  	if (l->Prime==parcours->Prime){
+  	if (l->n.n==parcours->n.n){
    	   if(parcours->Recurence){
 				parcours->Recurence--;
       	}
@@ -195,8 +208,9 @@ void Remplissage( struct list *l){
    else if (parcours->next==NULL){
     	struct list *push= malloc (sizeof(struct list));
     	push->Recurence=1;
-    	push->Prime=l->Prime;
+    	push->n.n=l->n.n;
     	push->next=NULL;
+    	push->n.fichier=l->n.fichier;
     	parcours->next= push;
       PopList(&l);
       parcours=global;
@@ -208,8 +222,7 @@ void Remplissage( struct list *l){
 }
 
 void *producer(void *file){
-	
- 	 FILE* fichier = (FILE *) file;
+ 	 FILE* fichier = fopen((char *)file, "r");
      pthread_mutex_lock(&mutex[0]);
 		pthread_mutex_unlock(&mutex[0]);
     uint64_t var;
@@ -224,7 +237,8 @@ void *producer(void *file){
       while (fin!=0){ 
       	sem_wait(&semaphore[1]);
       	pthread_mutex_lock(&mutex[1]);
-			Buffer1[Buffer1_Count]=be64toh(var);
+			Buffer1[Buffer1_Count].n=be64toh(var);
+			Buffer1[Buffer1_Count].fichier=(char *) file;
 			Buffer1_Count++;
 			fin=fread( &var , sizeof(var) , 1 , fichier );
 			pthread_mutex_unlock(&mutex[1]);
@@ -242,6 +256,48 @@ void *producer(void *file){
     }
     else
     {
+    		prodcount--;
+        // On affiche un message d'erreur si on veut
+        printf("Impossible d'ouvrir le fichier file1.txt\n");
+    } 
+    return NULL;
+}
+
+void *producer2(void *file){
+ 	 URL_FILE *fichier= url_fopen((char *)file,"r");
+    pthread_mutex_lock(&mutex[0]);
+		pthread_mutex_unlock(&mutex[0]);
+    uint64_t var;
+    struct list *l;
+
+    if (fichier != NULL)
+    {
+    	pthread_mutex_lock(&mutex[1]);
+      size_t fin = url_fread( &var , sizeof(var) , 1 , fichier );
+      pthread_mutex_unlock(&mutex[1]);
+      while (fin!=0){ 
+      	sem_wait(&semaphore[1]);
+      	pthread_mutex_lock(&mutex[1]);
+			Buffer1[Buffer1_Count].n=be64toh(var);
+			Buffer1[Buffer1_Count].fichier=(char *) file;
+			Buffer1_Count++;
+			fin=url_fread( &var , sizeof(var) , 1 , fichier );
+			pthread_mutex_unlock(&mutex[1]);
+			sem_post(&semaphore[2]);
+      }
+      printf("bam\n");
+      url_fclose(fichier);
+      pthread_mutex_lock(&mutex[1]);
+      flag++;
+      if (flag==prodcount) {
+       sem_post(&semaphore[2]);
+      }
+      pthread_mutex_unlock(&mutex[1]);
+      printf("flag:%d\n",flag);
+    }
+    else
+    {
+    		prodcount--;
         // On affiche un message d'erreur si on veut
         printf("Impossible d'ouvrir le fichier file1.txt\n");
     } 
@@ -249,7 +305,7 @@ void *producer(void *file){
 }
 void *consummer(void *p){
 	struct list *l=NULL;
-	int g;
+	struct NOMBRE g;
 	int flag3=0;
 	char *t= (char*) p;
 	while(1){
@@ -282,7 +338,7 @@ void *consummer(void *p){
 		pthread_mutex_unlock(&mutex[1]);
 		sem_post(&semaphore[1]);
 		
-		l=Factorisation(g);
+		l=Factorisation(g.n,g.fichier);
 
 		sem_wait(&semaphore[3]);
 		pthread_mutex_lock(&mutex[2]);
@@ -338,13 +394,15 @@ void *remplisseur(void *p){
 }
 
 void fin(void){
-	struct list *parcours = global;
-	while(parcours!=NULL){
-		if(parcours->Recurence==1){
-			printf("le seul nombre premier utilisé une fois est:%d\n",parcours->Prime);
+	while(global!=NULL){
+		if(global->Recurence==1){
+			printf("le seul nombre premier utilisé une fois est:%d\n dans:%s\n",global->n.n, global->n.fichier);
 		}
-		parcours=parcours->next;
+		PopList(&global);
 	}
+	free(prod);
+	free(Buffer1);
+	free(Buffer2);
 }
 
 
@@ -357,25 +415,30 @@ void freePN(void){
   		ListPN=pop;
 	}
 }
+
 void Launch_producer(int argc, char *argv[]){
 	int c;
 	FILE* fichier[argc];
+	URL_FILE *URL_fichier[argc];
 	for (c=1; c < argc; c++){
 		if(strcmp(argv[c],MAXTHREAD)==0){
 			c++;
 		}
-		else if(strcmp(argv[c],prefix_URL)==0){
-		//URL ET MACHIN CHOSE
+		
+		else if(strncmp(argv[c],prefix_URL,prefix_URL_LENGTH)==0){
+		prodcount++;
+		pthread_create(&prod[prodcount],NULL,&producer2,(void*) argv[c]);
 		}
+		
 		else if(strcmp(argv[c],STDIN)!=0){
-			fichier[c]  = fopen(argv[c], "r");
-			if (fichier[c]!= NULL){
 			prodcount++;
-			pthread_create(&prod[prodcount],NULL,&producer,(void *) fichier[c] );
-			}
+			pthread_create(&prod[prodcount],NULL,&producer,(void *) argv[c] );
 		}
 	}
-	
+	if(prodcount==0){
+		NOFILE=1;
+		prodcount=1;
+	}
 }
 
 int main ( int argc, char *argv[]){
@@ -385,7 +448,7 @@ int main ( int argc, char *argv[]){
 	
 	define_maxthread(argc , argv);
 	
-	initialisation();
+	initialisation(argc);
 	pthread_mutex_lock(&mutex[0]);
 	Launch_producer(argc , argv);
 	printf("prodcount:%d\n",prodcount);
@@ -414,11 +477,16 @@ int main ( int argc, char *argv[]){
 				printf("vous avez inseré: %d\n",var);
 				sem_wait(&semaphore[1]);  
 				pthread_mutex_lock(&mutex[1]);
-				Buffer1[Buffer1_Count]=var; 
+				Buffer1[Buffer1_Count].n=var;
+				Buffer1[Buffer1_Count].fichier="-stdin"; 
 				Buffer1_Count++; 
 				pthread_mutex_unlock(&mutex[1]); 
 				sem_post(&semaphore[2]);
 				}
+			}
+			if(NOFILE){
+				prodcount--;
+				sem_post(&semaphore[2]);
 			}
 		}
 	}
@@ -438,9 +506,13 @@ int main ( int argc, char *argv[]){
  	}
 	pthread_join (remp, NULL);
 
-  //freePN();
+  freePN();
+  	for (i=0;i<argc;i++){
+ 		pthread_join (prod[i], NULL);
+ 	}
   	
   	fin();
+  	//freefin();
   	printf("min1 %d\n", min1);
   	printf("max1 %d\n", max1);
   	printf("min2 %d\n", min2);
