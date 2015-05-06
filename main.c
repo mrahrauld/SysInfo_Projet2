@@ -12,23 +12,27 @@
 #define NB_sem_t  5
 #define MAXTHREAD "-maxthreads"
 #define STDIN "-stdin"
-#define prodcount 4
-int maxthread=4;
-int m=0;
-int n=0;
-int ProdCount=0;
-int ConsCount=0;
-int RempCount=0;
-int Cons2Count=0;
-int *T;
+#define prefix_URL "http://"
+#define prefix_URL_LENGTH 7
+int prodcount=0; // permet de calculer le nombre de producteurs crees
+int maxthread=4; //initialisé à 4 de maniere arbitraire, modifiee dans initialisation
+int Buffer1_Count=0; 
+int Buffer2_Count=0;
+int *Buffer1;
 char *Arg;
 int breaker=0;
 int value;
-struct list **T2;
+struct list **Buffer2;
 int flag=0;
 int flag2=0;
 int flag3=0;
 int IsStdinFinish=0;
+pthread_t prod[20];
+
+int max1=0;
+int min1=0;
+int max2=0;
+int min2=0;
 
 struct PN{
   int PrimeNumber;
@@ -111,12 +115,12 @@ int NextPrimeNumber(int a){
   return 0; //à changer
 }
 void initialisation(void){
-	int *TT= malloc(sizeof(int)*maxthread);
-	T=TT;
-	char *arg2= malloc (sizeof(char)*maxthread);
-	Arg=arg2;
-	struct list **TT2= malloc (sizeof(struct list*)*maxthread);
-	T2=TT2;
+	int *Buff= malloc(sizeof(int)*maxthread);
+	Buffer1=Buff;
+	char *A= malloc (sizeof(char)*maxthread);
+	Arg=A;
+	struct list **Buff2= malloc (sizeof(struct list*)*maxthread);
+	Buffer2=Buff2;
 	struct PN *P = malloc(sizeof(struct PN));
 	P->PrimeNumber=2; 
 	P->n=NULL;
@@ -160,11 +164,9 @@ struct list *Factorisation(int a){
     	if (a % v==0){
      	 a= a/v;
       	PushList(&l,v);
-      	// printf("%d \n",i);
      	 parcours=ListPN;
     	}
-    	else {
-    		//pthread_mutex_lock(&mutex[3]); 
+    	else { 
     		if (parcours->n==NULL){//rajoute un PrimeNumber à la liste		
     	  		struct PN *push=malloc(sizeof(struct PN));
     	  		pthread_mutex_lock(&mutex[3]); 
@@ -173,7 +175,6 @@ struct list *Factorisation(int a){
     	  		parcours->n=push;
     	  		pthread_mutex_unlock(&mutex[3]);
     	  	}
-    	  	//pthread_mutex_unlock(&mutex[3]);
     	  	parcours=parcours->n;
       
    	}
@@ -197,50 +198,39 @@ void Remplissage( struct list *l){
     	push->Prime=l->Prime;
     	push->next=NULL;
     	parcours->next= push;
-      //PushList(&global,l->Prime);
-      //global->Recurence=1;
       PopList(&l);
       parcours=global;
     }
     else{
-    	//precedent=parcours;
       parcours=parcours->next;
     }
   }
 }
+
 void *producer(void *file){
-	pthread_mutex_lock(&mutex[0]);
-	pthread_mutex_unlock(&mutex[0]);
+	
  	 FILE* fichier = (FILE *) file;
-		//printf("%c\n",*((char *) file));
-   
+     pthread_mutex_lock(&mutex[0]);
+		pthread_mutex_unlock(&mutex[0]);
     uint64_t var;
     struct list *l;
-    //printf("1");
+
     if (fichier != NULL)
     {
-    	//printf("2");
+
     	pthread_mutex_lock(&mutex[1]);
       size_t fin=fread( &var , sizeof(var) , 1 , fichier );
       pthread_mutex_unlock(&mutex[1]);
       while (fin!=0){ 
-      	//printf("3");
       	sem_wait(&semaphore[1]);
       	pthread_mutex_lock(&mutex[1]);
-      	//ProdCount++;
-			T[m]=be64toh(var);
-			m++;
-			//printf(" m:%d ",m);
+			Buffer1[Buffer1_Count]=be64toh(var);
+			Buffer1_Count++;
 			fin=fread( &var , sizeof(var) , 1 , fichier );
-		//	if(fin==0){
-		//		flag++;
-		//	}
 			pthread_mutex_unlock(&mutex[1]);
 			sem_post(&semaphore[2]);
       }
-      //PrintList(global);
       printf("bam\n");
-      //flag++;
       fclose(fichier);
       pthread_mutex_lock(&mutex[1]);
       flag++;
@@ -263,112 +253,85 @@ void *consummer(void *p){
 	int flag3=0;
 	char *t= (char*) p;
 	while(1){
-		//printf(" threada:%c ",*t);
 		pthread_mutex_lock(&mutex[1]);
-		if (m==0 && flag==prodcount){
+		if (Buffer1_Count==0 && flag==prodcount){
 			breaker=1;
-		   m=maxthread;
+		   Buffer1_Count=maxthread;
 		   sem_post(&semaphore[3]);
 		   sem_post(&semaphore[2]);
-		   //sem_post(&semaphore[4]);
 			pthread_mutex_unlock(&mutex[1]);
-			//printf(" threadc:%c ",*t);
 			
 			break;
 		}
 		pthread_mutex_unlock(&mutex[1]);
-		//printf(" threadd:%c ",*t);
-		//printf(" m:%d ",m);
 		sem_wait(&semaphore[2]);
 		pthread_mutex_lock(&mutex[1]);
-		if (breaker || m==0 && flag==prodcount){
-			//sem_post(&semaphore[3]);
+		if (breaker || Buffer1_Count==0 && flag==prodcount){
 		   	sem_post(&semaphore[2]);
 		   pthread_mutex_unlock(&mutex[1]);
-			//printf(" threadg:%c ",*t);
 			break;
 		}
-		//ConsCount++;
-		
-		m--;
-		printf(" m:%d ",m);
-		g=T[m];
-		//Remplissage(l);
-		//if (m==0 && flag==4){
-			//flag3++;
-			//printf("flag3:%d\n",flag3);
-		//}
-		//printf(" threadh:%c ",*t);
+		if (Buffer1_Count==maxthread){
+		max1++;
+		}
+		Buffer1_Count--;
+		if (Buffer1_Count==0){
+		min1++;
+		}
+		g=Buffer1[Buffer1_Count];
 		pthread_mutex_unlock(&mutex[1]);
 		sem_post(&semaphore[1]);
 		
 		l=Factorisation(g);
-		//printf("1");
-		//printf(" threadi:%c ",*t);
-		//printf(" n:%d ",n);
+
 		sem_wait(&semaphore[3]);
-		
-		//printf(" threadk:%c ",*t);
 		pthread_mutex_lock(&mutex[2]);
-		//Cons2Count++;
-		//printf("2");
-		T2[n]=l;
-		//printf("3");
-		n++;
-		//printf(" n:%d ",n);
-		//printf("flag:%d\n",flag2);
-		//printf(" threadj:%c ",*t);
+
+		Buffer2[Buffer2_Count]=l;
+		if (Buffer2_Count==0){
+		min2++;
+		}
+		Buffer2_Count++;
+		if (Buffer2_Count==maxthread){
+		max2++;
+		}
 		pthread_mutex_unlock(&mutex[2]);
-		//pthread_mutex_unlock(&mutex[0]);
 		sem_post(&semaphore[4]);
 	}
 	pthread_mutex_lock(&mutex[2]);
 	flag2++;
-	//printf(" flag2:%d ",flag2);
-	//sem_getvalue(&semaphore[3], &value);
-	//printf("sem3: %d\n",value);
-	//sem_getvalue(&semaphore[4], &value);
-	//printf("sem4: %d\n",value);
+
 	if (flag2==maxthread){
 		sem_post(&semaphore[4]);
 	}
 	pthread_mutex_unlock(&mutex[2]);
 	
 	printf("bim\n");
-	printf("n: %d\n",n);
 	return NULL;
 }
 void *remplisseur(void *p){
 	struct list *l;
 	while(1){
 	pthread_mutex_lock(&mutex[2]);
-		if (n==0 && flag2==maxthread){
+		if (Buffer2_Count==0 && flag2==maxthread){
 			printf("break remp");
 			break;
 		}
 	pthread_mutex_unlock(&mutex[2]);
-	//printf("4");
 		sem_wait(&semaphore[4]);
-		//printf("5");
+
 		pthread_mutex_lock(&mutex[2]);
-		if (n==0 && flag2==maxthread){
+		if (Buffer2_Count==0 && flag2==maxthread){
 			printf("break remp");
 			break;
 		}
-		//RempCount++;
-		//printf("6");
-		//printf(" n:%d ",n);
-		n--;
-		printf(" n:%d ",n);
-		Remplissage(T2[n]);
-		//printf("7");
+
+		Buffer2_Count--;
+		Remplissage(Buffer2[Buffer2_Count]);
+
 		pthread_mutex_unlock(&mutex[2]);
 		sem_post(&semaphore[3]);
-		//printf(" ");
-		//printf(" %d ",RempCount);
-		//printf(" flag2:%d ",flag2);
 	}
-	//PrintList(global);
 	printf("boum\n");
 	
 	return NULL;
@@ -394,6 +357,26 @@ void freePN(void){
   		ListPN=pop;
 	}
 }
+void Launch_producer(int argc, char *argv[]){
+	int c;
+	FILE* fichier[argc];
+	for (c=1; c < argc; c++){
+		if(strcmp(argv[c],MAXTHREAD)==0){
+			c++;
+		}
+		else if(strcmp(argv[c],prefix_URL)==0){
+		//URL ET MACHIN CHOSE
+		}
+		else if(strcmp(argv[c],STDIN)!=0){
+			fichier[c]  = fopen(argv[c], "r");
+			if (fichier[c]!= NULL){
+			prodcount++;
+			pthread_create(&prod[prodcount],NULL,&producer,(void *) fichier[c] );
+			}
+		}
+	}
+	
+}
 
 int main ( int argc, char *argv[]){
 	struct timeval tbegin,tend;
@@ -403,19 +386,20 @@ int main ( int argc, char *argv[]){
 	define_maxthread(argc , argv);
 	
 	initialisation();
+	pthread_mutex_lock(&mutex[0]);
+	Launch_producer(argc , argv);
+	printf("prodcount:%d\n",prodcount);
 	char BUFF[20];
 	int i;
 	pthread_t cons[maxthread];
-	pthread_t prod, remp;
-	 for (i=0;i<maxthread;i++){
+	pthread_t remp;
+	for (i=0;i<maxthread;i++){
   	pthread_create(&cons[i],NULL,&consummer,(void *) "1");
   	}
   	pthread_create(&remp,NULL,&remplisseur,NULL);
-  FILE* fichier = NULL;
-  pthread_mutex_lock(&mutex[0]);
+  	
 	for (i=1; i < argc; i++){
 		if(strcmp(argv[i],STDIN)==0){
-		 
 			while (1){
 				printf("Inserez un nombre ou /Exit : ");
 				fgets(BUFF, sizeof(BUFF), stdin);
@@ -428,68 +412,39 @@ int main ( int argc, char *argv[]){
 				var=atoi(BUFF);
 				if(var){
 				printf("vous avez inseré: %d\n",var);
-				sem_getvalue(&semaphore[1], &value);
-				printf("sem1: %d\n",value);
-				sem_getvalue(&semaphore[2], &value);
-				printf("sem2: %d\n",value);
-				sem_getvalue(&semaphore[3], &value);
-				printf("sem3: %d\n",value);
-				sem_getvalue(&semaphore[4], &value);
-				printf("sem4: %d\n",value);
-				printf("%d\n",m); 
-				printf("%d\n",m);
-				sem_wait(&semaphore[1]); 
-				printf("NO\n"); 
+				sem_wait(&semaphore[1]);  
 				pthread_mutex_lock(&mutex[1]);
-				printf("ca marche"); 
-				T[m]=var; 
-				m++; 
+				Buffer1[Buffer1_Count]=var; 
+				Buffer1_Count++; 
 				pthread_mutex_unlock(&mutex[1]); 
 				sem_post(&semaphore[2]);
 				}
 			}
 		}
-		else if (strcmp(argv[i], MAXTHREAD) == 0)
-			{
-				i++;
-	  		}
-		else{
-			fichier  = fopen(argv[i], "r");
-			pthread_create(&prod,NULL,&producer,(void *) fichier );
-		}	
 	}
 	pthread_mutex_unlock(&mutex[0]);
 	int b=0;  
-  	pthread_t prod2 , prod3,prod4;
   
-  	
-  	 //fichier = fopen((char *) "file3.txt", "r");
-
-   //pthread_create(&prod,NULL,&producer,(void *) fichier );
-   //pthread_create(&prod2,NULL,&producer,(void *) "file2.txt" );
-   //pthread_create(&prod3,NULL,&producer,(void *) "file3.txt" );
-   //pthread_create(&prod4,NULL,&producer,(void *) "file4.txt" );
-  // pthread_create(&cons[0],NULL,&consummer,(void *) "0");
-   //pthread_create(&cons[1],NULL,&consummer,(void *) "1");
-   //pthread_create(&cons[2],NULL,&consummer,(void *) "2");
-  //Producer("file1.txt");
-  //for (i=0;i<maxthread;i++){
-  //	pthread_create(&cons[i],NULL,&consummer,(void *) "1");
-  //}
-  	
-
-  	pthread_join (prod, NULL);
+	//for (i=0;i<prodcount;i++){
+ 		//pthread_join (prod[i], NULL);
+ 	//}
+  	//pthread_join (prod, NULL);
   	//pthread_join (prod2, NULL);
   //	pthread_join (prod3, NULL);
   //	pthread_join (prod4, NULL);
+  printf("2\n");
  	for (i=0;i<maxthread;i++){
  		pthread_join (cons[i], NULL);
  	}
 	pthread_join (remp, NULL);
 
-  	//freePN(); /!\ /!\
-
+  freePN();
+  	
   	fin();
+  	printf("min1 %d\n", min1);
+  	printf("max1 %d\n", max1);
+  	printf("min2 %d\n", min2);
+  	printf("max2 %d\n", max2);
   	gettimeofday(&tend,NULL);
   	texec=((double)(1000*(tend.tv_sec-tbegin.tv_sec)+((tend.tv_usec-tbegin.tv_usec)/1000)))/1000.;
   	
