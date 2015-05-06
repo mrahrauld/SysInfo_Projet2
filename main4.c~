@@ -8,21 +8,29 @@
 #include <endian.h>
 #include <semaphore.h>
 #include <sys/time.h>
+#include <string.h>
+//#include<curl/curl.h>
 #define NB_phtread_mutex_t  6
 #define NB_sem_t  5
-#define prodcount 4
-int maxthread=4;
+#define maxthreads "-maxthreads"
+//#define maxthread 4
+#define STDIN "-stdin"
+#define STDIN_filename "stdin"
+#define prefix_URL "http://"
+//#define prefix_URL_long 5
+int maxthread;
+int i;
 int m=0;
 int n=0;
 int ProdCount=0;
 int ConsCount=0;
 int RempCount=0;
 int Cons2Count=0;
-int *T;
-char *Arg;
+int T[];
+char Arg[];
 int breaker=0;
 int value;
-struct list **T2;
+struct list *T2[];
 int flag=0;
 int flag2=0;
 int flag3=0;
@@ -97,12 +105,6 @@ int NextPrimeNumber(int a){
   return 0; //à changer
 }
 void initialisation(void){
-	int *TT= malloc(sizeof(int)*maxthread);
-	T=TT;
-	char *arg2= malloc (sizeof(char)*maxthread);
-	Arg=arg2;
-	struct list **TT2= malloc (sizeof(struct list*)*maxthread);
-	T2=TT2;
 	struct PN *P = malloc(sizeof(struct PN));
 	P->PrimeNumber=2; 
 	P->n=NULL;
@@ -113,16 +115,6 @@ void initialisation(void){
 	glob->Recurence=2;
 	glob->next=NULL;
 	global=glob;
-	
-	em_init (&semaphore[1], 0, maxthread);
-	sem_init (&semaphore[2], 0, 0);
-	sem_init (&semaphore[3], 0, maxthread);
-	sem_init (&semaphore[4], 0, 0);
-	sem_init (&semaphore[5], 0, maxthread);
-	pthread_mutex_init(&mutex[1],NULL);
-	pthread_mutex_init(&mutex[2],NULL);
-	pthread_mutex_init(&mutex[3],NULL);
-	pthread_mutex_init(&mutex[0],NULL);
 }
 
 struct list *Factorisation(int a){
@@ -182,10 +174,10 @@ void Remplissage( struct list *l){
     }
   }
 }
-void *producer(void *file){
-  FILE* fichier = NULL;
+void *producer(void *fichier){
+  //FILE* fichier = NULL;
 		//printf("%c\n",*((char *) file));
-    fichier = fopen((char *) file, "r");
+    //fichier = fopen((char *) file, "r");
     uint64_t var;
     struct list *l;
     //printf("1");
@@ -216,7 +208,7 @@ void *producer(void *file){
       fclose(fichier);
       pthread_mutex_lock(&mutex[1]);
       flag++;
-      if (flag==prodcount) {
+      if (flag==4) {
        sem_post(&semaphore[2]);
       }
       pthread_mutex_unlock(&mutex[1]);
@@ -237,7 +229,7 @@ void *consummer(void *p){
 	while(1){
 		//printf(" threada:%c ",*t);
 		pthread_mutex_lock(&mutex[1]);
-		if (m==0 && flag==prodcount){
+		if (m==0 && flag==4){
 			breaker=1;
 		   m=maxthread;
 		   sem_post(&semaphore[3]);
@@ -253,7 +245,7 @@ void *consummer(void *p){
 		//printf(" m:%d ",m);
 		sem_wait(&semaphore[2]);
 		pthread_mutex_lock(&mutex[1]);
-		if (breaker || m==0 && flag==prodcount){
+		if (breaker || m==0 && flag==4){
 			//sem_post(&semaphore[3]);
 		   sem_post(&semaphore[2]);
 		   pthread_mutex_unlock(&mutex[1]);
@@ -371,21 +363,141 @@ void freePN(void){
 }
 
 int main ( int argc, char *argv[]){
+	
+	  FILE *fichier = NULL;
+	  //URL_FILE *fichier_url = NULL;
+	  	
+		//bool *Act_producer = malloc(argc,sizeof(bool));
+		
+		//bool s_stdin = false;
+		int nb_threads = 0 ;
+		char BUFF;
+		
+		if(Act_producer == NULL)
+		{
+			exit(EXIT_FAILURE);
+		}
+		
+		//char stdin_filename[] = STDIN_FILENAME;
+		
+	 for (i=1; i < argc-1; i++)
+		{
+			if (strcmp(argv[i], maxthreads) == 0)
+			{
+				maxthread = atoi(argv[i+1]);
+				i++;
+	  	}
+	  	/*
+			else if(strcmp(argv[i],STDIN)==0)
+			{
+			
+				printf("Tapez '/Exit' pour stopper la boucle");
+				while (true)
+				{
+					fgets(BUFF, sizeof(BUFF), stdin);
+					clean(BUFF, stdin);
+					
+					sem_wait(&semaphore[1]); 
+					pthread_mutex_lock(&mutex[1]); 
+					T[m]=var; 
+					m++; 
+					pthread_mutex_unlock(&mutex[1]); 
+					sem_post(&semaphore[2]);
+				
+					if(strcmp("/Exit",BUFF))
+					{
+						break;
+					}
+				}	
+
+				//s_stdin = true ;
+				if (pthread_create(&producer[i],NULL,&producer,NULL))
+				{
+					exit(EXIT_FAILURE);
+				}
+				Act_producer[i] = true ;
+				nb_threads ++;
+			}
+			
+			else if(strcmp(argv[i],prefix_URL,strlen("http://"))==0)
+			{
+				fichier_url = url_fopen(argv[i],"r");
+				if (fichier_url = NULL)
+				{
+					printf("Imposssible d'ouvrir le fichier");
+				}
+				
+				
+				 char *url = (char *) param;
+         int pipefd[2];
+				if (pipe(pipefd)) 
+				{
+					perror("pipe");
+					exit(EXIT_FAILURE);
+				}
+				write_from_url_to_fd(url, pipefd[1]);
+	      
+				
+				else
+				{
+					if (pthread_create(&producer[i],NULL,&producer,argv[i]))
+					{
+						exit(EXIT_FAILURE);
+					}
+					Act_producer[i] = true ;
+					nb_threads ++;
+				}
+			}
+			else
+			{
+			fichier  = fopen(argv[i], "r");
+				if (fichier == NULL)
+					{
+						printf("Impossible d'ouvrir le fichier");
+					}
+					else
+					{
+					if (pthread_create(&producer[i],NULL,&producer,(void*) *fichier))
+						{
+							exit(EXIT_FAILURE);
+						}
+					}
+				Act_producer[i] = true ;
+				nb_threads ++;
+				}
+		*/
+				
+			}
+
+	
 	struct timeval tbegin,tend;
     double texec=0.;
 	gettimeofday(&tbegin,NULL);
-	
+
+	//struct PN *ListPN=(struct PN *)malloc(sizeof(struct PN));
 	initialisation();
 	int b=0;
 	int i=0;  
-
+  	sem_init (&semaphore[1], 0, maxthread);
+	sem_init (&semaphore[2], 0, 0);
+	sem_init (&semaphore[3], 0, maxthread);
+	sem_init (&semaphore[4], 0, 0);
+	sem_init (&semaphore[5], 0, maxthread);
+	pthread_mutex_init(&mutex[1],NULL);
+	pthread_mutex_init(&mutex[2],NULL);
+	pthread_mutex_init(&mutex[3],NULL);
+	pthread_mutex_init(&mutex[0],NULL);
   	pthread_t prod , prod2 , prod3,prod4, remp;
   	pthread_t cons[maxthread];
-
-   pthread_create(&prod,NULL,&producer,(void *) "file1.txt" );
+  //struct list *l=Factorisation(b);
+   //printf("ok\n"); 
+   //Remplissage(l); 
+   //PrintList(l); 
+   //PrintList(global);
+  pthread_create(&prod,NULL,&producer,(void *) "file1.txt" );
    pthread_create(&prod2,NULL,&producer,(void *) "file2.txt" );
    pthread_create(&prod3,NULL,&producer,(void *) "file3.txt" );
-   pthread_create(&prod4,NULL,&producer,(void *) "file4.txt" );
+   pthread_create(&prod4,NULL,&producer,(void *) "4k" );
   // pthread_create(&cons[0],NULL,&consummer,(void *) "0");
    //pthread_create(&cons[1],NULL,&consummer,(void *) "1");
    //pthread_create(&cons[2],NULL,&consummer,(void *) "2");
@@ -401,6 +513,8 @@ int main ( int argc, char *argv[]){
   	pthread_join (prod2, NULL);
   	pthread_join (prod3, NULL);
   	pthread_join (prod4, NULL);
+  	
+  	//pthread_join (cons[0], NULL);
  	for (i=0;i<maxthread;i++){
  		pthread_join (cons[i], NULL);
  	}

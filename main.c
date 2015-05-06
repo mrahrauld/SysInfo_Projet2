@@ -10,18 +10,19 @@
 #include <sys/time.h>
 #define NB_phtread_mutex_t  6
 #define NB_sem_t  5
-#define maxthread 4
+#define prodcount 4
+int maxthread=4;
 int m=0;
 int n=0;
 int ProdCount=0;
 int ConsCount=0;
 int RempCount=0;
 int Cons2Count=0;
-int T[maxthread];
-char Arg[maxthread];
+int *T;
+char *Arg;
 int breaker=0;
 int value;
-struct list *T2[maxthread];
+struct list **T2;
 int flag=0;
 int flag2=0;
 int flag3=0;
@@ -96,6 +97,12 @@ int NextPrimeNumber(int a){
   return 0; //à changer
 }
 void initialisation(void){
+	int *TT= malloc(sizeof(int)*maxthread);
+	T=TT;
+	char *arg2= malloc (sizeof(char)*maxthread);
+	Arg=arg2;
+	struct list **TT2= malloc (sizeof(struct list*)*maxthread);
+	T2=TT2;
 	struct PN *P = malloc(sizeof(struct PN));
 	P->PrimeNumber=2; 
 	P->n=NULL;
@@ -106,6 +113,16 @@ void initialisation(void){
 	glob->Recurence=2;
 	glob->next=NULL;
 	global=glob;
+	
+	sem_init (&semaphore[1], 0, maxthread);
+	sem_init (&semaphore[2], 0, 0);
+	sem_init (&semaphore[3], 0, maxthread);
+	sem_init (&semaphore[4], 0, 0);
+	sem_init (&semaphore[5], 0, maxthread);
+	pthread_mutex_init(&mutex[1],NULL);
+	pthread_mutex_init(&mutex[2],NULL);
+	pthread_mutex_init(&mutex[3],NULL);
+	pthread_mutex_init(&mutex[0],NULL);
 }
 
 struct list *Factorisation(int a){
@@ -199,7 +216,7 @@ void *producer(void *file){
       fclose(fichier);
       pthread_mutex_lock(&mutex[1]);
       flag++;
-      if (flag==4) {
+      if (flag==prodcount) {
        sem_post(&semaphore[2]);
       }
       pthread_mutex_unlock(&mutex[1]);
@@ -220,7 +237,7 @@ void *consummer(void *p){
 	while(1){
 		//printf(" threada:%c ",*t);
 		pthread_mutex_lock(&mutex[1]);
-		if (m==0 && flag==4){
+		if (m==0 && flag==prodcount){
 			breaker=1;
 		   m=maxthread;
 		   sem_post(&semaphore[3]);
@@ -236,7 +253,7 @@ void *consummer(void *p){
 		//printf(" m:%d ",m);
 		sem_wait(&semaphore[2]);
 		pthread_mutex_lock(&mutex[1]);
-		if (breaker || m==0 && flag==4){
+		if (breaker || m==0 && flag==prodcount){
 			//sem_post(&semaphore[3]);
 		   sem_post(&semaphore[2]);
 		   pthread_mutex_unlock(&mutex[1]);
@@ -357,31 +374,18 @@ int main ( int argc, char *argv[]){
 	struct timeval tbegin,tend;
     double texec=0.;
 	gettimeofday(&tbegin,NULL);
-
-	//struct PN *ListPN=(struct PN *)malloc(sizeof(struct PN));
+	
 	initialisation();
 	int b=0;
 	int i=0;  
-  	sem_init (&semaphore[1], 0, maxthread);
-	sem_init (&semaphore[2], 0, 0);
-	sem_init (&semaphore[3], 0, maxthread);
-	sem_init (&semaphore[4], 0, 0);
-	sem_init (&semaphore[5], 0, maxthread);
-	pthread_mutex_init(&mutex[1],NULL);
-	pthread_mutex_init(&mutex[2],NULL);
-	pthread_mutex_init(&mutex[3],NULL);
-	pthread_mutex_init(&mutex[0],NULL);
+
   	pthread_t prod , prod2 , prod3,prod4, remp;
   	pthread_t cons[maxthread];
-  //struct list *l=Factorisation(b);
-   //printf("ok\n"); 
-   //Remplissage(l); 
-   //PrintList(l); 
-   //PrintList(global);
-  pthread_create(&prod,NULL,&producer,(void *) "file1.txt" );
+
+   pthread_create(&prod,NULL,&producer,(void *) "file1.txt" );
    pthread_create(&prod2,NULL,&producer,(void *) "file2.txt" );
    pthread_create(&prod3,NULL,&producer,(void *) "file3.txt" );
-   pthread_create(&prod4,NULL,&producer,(void *) "4k" );
+   pthread_create(&prod4,NULL,&producer,(void *) "file4.txt" );
   // pthread_create(&cons[0],NULL,&consummer,(void *) "0");
    //pthread_create(&cons[1],NULL,&consummer,(void *) "1");
    //pthread_create(&cons[2],NULL,&consummer,(void *) "2");
@@ -397,8 +401,6 @@ int main ( int argc, char *argv[]){
   	pthread_join (prod2, NULL);
   	pthread_join (prod3, NULL);
   	pthread_join (prod4, NULL);
-  	
-  	//pthread_join (cons[0], NULL);
  	for (i=0;i<maxthread;i++){
  		pthread_join (cons[i], NULL);
  	}
